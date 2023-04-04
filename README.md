@@ -1,1 +1,0 @@
-# snowcase_MOSAiC

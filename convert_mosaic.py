@@ -25,13 +25,13 @@ heightcoord = np.linspace(0,maxheight,maxheight*2+1)
 lstfiles = ['temperature/metadata_Temperature.xlsx','density/metadata_DensityCutter_removedOvalues.xlsx','depth/metadata_snow_depth_removedOvalues.xlsx','swe/metadata_SWE.xlsx']
 outfiles = {lstfiles[0]:'temperature.nc',lstfiles[1]:'density.nc',lstfiles[2]:'height.nc',lstfiles[3]:'swe.nc'}
 # Columns containing coordinates are not always at the same position 
-timecol = {lstfiles[0]:2,lstfiles[1]:4,lstfiles[2]:0,lstfiles[3]:0}
-loncol = {lstfiles[0]:4,lstfiles[1]:3,lstfiles[2]:0,lstfiles[3]:0}
-latcol = {lstfiles[0]:3,lstfiles[1]:2,lstfiles[2]:0,lstfiles[3]:0}
-datacol = {lstfiles[0]:6,lstfiles[1]:7,lstfiles[2]:0,lstfiles[3]:0}
+timecol = {lstfiles[0]:2,lstfiles[1]:4,lstfiles[2]:2,lstfiles[3]:0}
+loncol = {lstfiles[0]:4,lstfiles[1]:3,lstfiles[2]:4,lstfiles[3]:0}
+latcol = {lstfiles[0]:3,lstfiles[1]:2,lstfiles[2]:3,lstfiles[3]:0}
+datacol = {lstfiles[0]:6,lstfiles[1]:7,lstfiles[2]:5,lstfiles[3]:0}
 
 # Loop over the files to be converted
-for filename in lstfiles[1:3]:
+for filename in lstfiles[0:3]:
   path = (rootpath + '/MOSAiC/snowpit/'+ filename)
   xls_book = xlrd.open_workbook(path)
   table = xls_book.sheet_by_index(0)
@@ -55,50 +55,59 @@ for filename in lstfiles[1:3]:
         timecoord.append(tsttime)
         # Include time into the time coordinate
         jtime = jtime + 1
+        if filename == lstfiles[2]:
+          jheight = 0
       print(tsttime, jtime)
       if filename == lstfiles[0]:
         height = table.col(5)[jrow].value # Measurement height
       elif filename == lstfiles[1]:
         toph = table.col(5)[jrow].value  # Range of measurement heights
         bottomh = table.col(6)[jrow].value
-        height = 0.5*(toph+bottomh) # To avoid next line to fail
-      # In the temperature file, 2m temperature are sometimes stored
-      if height == 200:
-        t2m[jtime] = table.col(datacol[filename])[jrow].value  
-      else:
-        if filename == lstfiles[0]:
+      if filename == lstfiles[0]:
+        if height == 200:
+          # In the temperature file, 2m temperature are sometimes stored
+          t2m[jtime] = table.col(datacol[filename])[jrow].value  
+        else:
           # Find the location on the height axis matching the measured height
           jheight = np.where(heightcoord == height)[0]
           data[jtime,jheight] = table.col(datacol[filename])[jrow].value 
           # Measured data stored in output
-        elif filename == lstfiles[1]:
-          jheighttop = np.where(heightcoord == toph)[0]
-          jheightbot = np.where(heightcoord == bottomh)[0]
-          # Snow density is measured over a range of heights
-          tmp = data[jtime,jheightbot.max():(jheighttop.max()+1)] 
-          data[jtime,jheightbot.max():(jheighttop.max()+1)] = np.where(np.isnan(tmp),table.col(datacol[filename])[jrow].value,(tmp+table.col(datacol[filename])[jrow].value)/2)
+      elif filename == lstfiles[1]:
+        jheighttop = np.where(heightcoord == toph)[0]
+        jheightbot = np.where(heightcoord == bottomh)[0]
+        # Snow density is measured over a range of heights
+        tmp = data[jtime,jheightbot.max():(jheighttop.max()+1)] 
+        data[jtime,jheightbot.max():(jheighttop.max()+1)] = np.where(np.isnan(tmp),table.col(datacol[filename])[jrow].value,(tmp+table.col(datacol[filename])[jrow].value)/2)
           # Sometimes 2 samples overlap in their range of heights so we need to average the information from the two measurements
-        lon[jtime] = table.col(loncol[filename])[jrow].value
-        lat[jtime] = table.col(latcol[filename])[jrow].value
-
+      elif filename == lstfiles[2]:
+        data[jtime,jheight] = table.col(datacol[filename])[jrow].value  
+        # Here the height axis is only used to store the various measurements to be averaged
+        jheight = jheight + 1
+      lon[jtime] = table.col(loncol[filename])[jrow].value
+      lat[jtime] = table.col(latcol[filename])[jrow].value
 
   if filename == lstfiles[0]:
     temparray = xr.DataArray(data[0:len(timecoord),],dims=['time','height'],attrs={'long_name':'snow temperature','units':'Celsius degrees'})
     ds['temp'] = temparray
     t2marray = xr.DataArray(t2m[0:len(timecoord),],dims=('time'),attrs={'long_name':'2m air temperature','units':'Celsius degrees'})
     ds['t2m']=t2marray
+    heightarray = xr.DataArray(heightcoord,dims=('height'),attrs={'long_name':'snow height','units':'cm'})
+    ds['height']=heightarray
   elif filename == lstfiles[1]:
     densarray = xr.DataArray(data[0:len(timecoord),],dims=['time','height'],attrs={'long_name':'snow density','units':'kg.m-3'})
     ds['density'] = densarray
+    heightarray = xr.DataArray(heightcoord,dims=('height'),attrs={'long_name':'snow height','units':'cm'})
+    ds['height']=heightarray
+  elif filename == lstfiles[2]:
+    heightarray = xr.DataArray(np.nanmean(data[0:len(timecoord),], axis = 1),dims=['time'],attrs={'long_name':'snow height','units':'cm'})
+    ds['height']=heightarray
   # Measured data stored in an Xarray and then into the Dataset
   
-  heightarray = xr.DataArray(heightcoord,dims=('height'),attrs={'long_name':'snow height','units':'cm'})
   latarray = xr.DataArray(lat[0:len(timecoord),],dims=('time'),attrs={'long_name':'Latitude','units':'degrees'})
   lonarray = xr.DataArray(lon[0:len(timecoord),],dims=('time'),attrs={'long_name':'Longitude','units':'degrees'})
   # Create Xarrays for the coordinates
  
   ds['time']=timecoord
-  ds['height']=heightarray
   ds['lat']=latarray
   ds['lon']=lonarray
   # Add the coordinates into the Dataset
